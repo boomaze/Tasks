@@ -68,11 +68,7 @@ Example 1:
 	--To get the POs that are NOT full Billed 
 	SELECT * 
 	INTO #NOTFULLYBILLED 
-	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate) --TODOMAZE TMS_WHS ???
-	
-	--Use TMS_WHS_ID in the FP_FREIGHT_FORM_VENDOR 
-	--table to match to TMS_WHS_ID in the TMS_WHS table 
-	--and reference SOURCE_SYSTEM in TMS_WHS
+	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate)
 	
 	CREATE CLUSTERED INDEX #NFBIDX ON #NOTFULLYBILLED (LO_PURCHASE_ORDER_ID)	
 
