@@ -1,0 +1,342 @@
+USE [TMS]
+GO
+
+/****** Object:  StoredProcedure [dbo].[MRS_RPT_SUPPLIER_PERFORMANCE_DASHBOARD]    Script Date: 7/12/2022 1:38:35 PM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+/**
+# ================================================================================================================================================
+Author:		  Johana Aleman
+Create date:  03/07/2016
+Description:  Develop Dashboard Report to measure Supplier Performance for UNFI complete with 
+			  Summary and Details tab for verification and backup data
+			
+Arguments:	  @StarDate DATE,
+			  @EndDate DATE,
+			  @LawsonNumber VARCHAR(MAX), --Valor by defaulf is 'ALL'
+			  @VendorNumber VARCHAR(MAX), --Valor by defaulf is 'ALL'
+			  @UNFI_DC VARCHAR(MAX) = NULL –This contains an specific TMS_WHS_ID 		
+Update Log:
+	20171206	Johana Aleman 	Add column to specify if PO was ver in PEND/PND status in the LO_PO_LOG TABLE
+	20180521	Johana Aleman   Renamed Procedure from SP_RPT_SUPPLIER_PERFORMANCE_DASHBOARD to MRS_RPT_SUPPLIER_PERFORMANCE_DASHBOARD
+	20190329	Johana Aleman   Fixed issue of ambiguity with LPO DRTE and Vendor DRTE (Added as part of Freight Pricing Project
+	20200121					Modified logic to utilize the IS_TRANSFER_VENDOR field 
+									in the [dbo].[TMS_VENDOR] table when selecting 
+									Transfer Vendors.
+
+									Old SQL Code:
+												tv.NAME NOT LIKE '%TRANSFER%'
+
+									New SQL Code:
+												tv.IS_TRANSFER_VENDOR <> 1
+    03062020       BK               Old SQL Code:
+												tv.[IS_TRANSFER_VENDOR] <> 1
+									New SQL Code:
+												tv.IS_TRANSFER_VENDOR = 0 OR tv.IS_TRANSFER_VENDOR IS NULL
+	05222020		JA				Use the [dbo].[PALLET_HANDLING_RATE] table to get the Direct =[BACKHAUL_RATE]
+									and CROSS_DOCK_RATE 
+# =================================================================================================================================================
+**/
+ALTER PROCEDURE [dbo].[MRS_RPT_SUPPLIER_PERFORMANCE_DASHBOARD]
+( 
+	 @StartDate DATE --= '2015-12-06'
+	 ,@EndDate DATE --= '2016-01-02'
+	 ,@LawsonNumber BIGINT
+	 ,@VendorNumber VARCHAR(MAX) = NULL
+	 ,@UNFI_DC VARCHAR(8000) = NULL	
+)
+AS
+BEGIN
+	SET NOCOUNT ON
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+/*************************************************************************************************
+Example 1
+	EXEC MRS_RPT_SUPPLIER_PERFORMANCE_DASHBOARD '2015-12-06', '2016-01-02', 11189,NULL,NULL
+**************************************************************************************************/
+
+	DECLARE	@DIRECT DECIMAL(10,5)
+		,	@CROSSDOCK DECIMAL(10,5)
+		, @StartDate1 DATE = @StartDate
+		 ,@EndDate1 DATE = @EndDate
+		 ,@LawsonNumber1 BIGINT = @LawsonNumber
+		 ,@VendorNumber1 VARCHAR(MAX) = @VendorNumber
+		 ,@UNFI_DC1 VARCHAR(2000) = @UNFI_DC
+		 ,@PL_List varchar(max)
+		 ,@PL varchar(100)
+
+		IF (@LawsonNumber1 IS NOT NULL AND @VendorNumber1 IS NOT NULL)
+			SET @VendorNumber1 = NULL
+
+		--Returns a table with all the PO that are no fully billed. 
+		SELECT * INTO #NOTFULLYBILLED 
+		FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate1, @EndDate1)
+		CREATE INDEX #NFB_POIDX ON #NOTFULLYBILLED (LO_PURCHASE_ORDER_ID)
+		
+		SELECT LO_PURCHASE_ORDER_ID, CAST(SUM(FREIGHT_PAID_PO) as decimal(10,3)) AS FREIGHT_PAID_PO,  CAST(NULL AS VARCHAR(25)) AS BILL_STATUS
+		INTO #TOTALS 
+		FROM [dbo].[fnGetSuppliersPOExpenses](@StartDate1,@EndDate1)
+		GROUP BY LO_PURCHASE_ORDER_ID
+		
+		CREATE INDEX #IDXTOTALS_LPO ON #TOTALS (LO_PURCHASE_ORDER_ID) 
+
+		
+		SELECT *
+		INTO #W
+		FROM  dbo.fnParseStack(@UNFI_DC1, 'i') 
+
+	
+		UPDATE #TOTALS
+		SET BILL_STATUS = 'Not Fully Billed'
+		FROM #TOTALS t 
+			INNER JOIN #NOTFULLYBILLED nfb 
+			ON nfb.LO_PURCHASE_ORDER_ID = t.LO_PURCHASE_ORDER_ID
+	
+		
+		SELECT DISTINCT 
+			tv.REMIT_VENDOR AS REMIT_VENDOR_NUMBER
+			,CAST(NULL AS VARCHAR(255)) AS REMIT_VENDOR_NAME
+			,tv.VENDOR_NUMBER 
+			,tv.NAME AS VENDOR_NAME
+			,lpo.DIS_WHS_ID
+			,PODEST.NAME AS PO_DESTINATION
+			,lpo.D_RTE AS ROUTE_CODE
+			,lpo.EXPECT_DATE			
+			,CASE 
+				WHEN lpl.LO_PO_LOADS_ID IS NULL
+					THEN 'VSP'
+				ELSE 'COLLECT'
+			 END AS PO_TYPE
+			,lpo.ORIGINAL_ETA_DATE
+			,CAST(NULL AS VARCHAR(15)) AS APPOINTMENT_STATUS
+			,lpo.PO_NUMBER
+			,lpo.TOTAL_UNITS AS TOTAL_UNITS_RCV
+			,dbo.FN_PO_PROTECTION (lpo.CHL_UNITS, lpo.DRY_UNITS, lpo.FRZ_UNITS, lpo.RPK_UNITS) AS PROTECTION_LEVEL
+			,COALESCE(tvf.ADDRESS1, tv.ADDRESS1) AS PICKUP_ADDRESS
+			,COALESCE(tvf.CITY, tv.CITY) AS PICKUP_CITY
+			,COALESCE(tvf.STATE, tv.STATE) AS PICKUP_STATE
+			,COALESCE(tvf.ZIP, tv.ZIP) AS ZIP
+			,lpo.TOTAL_WEIGHT AS TOTAL_PO_RECEIVED_LBS
+			,ISNULL(lpo.PROD_FRT,0)  AS PO_REVENUE
+			 ,CASE
+				WHEN t.BILL_STATUS IS NULL 
+					THEN  ISNULL(t.FREIGHT_PAID_PO,0) 
+				ELSE 0
+			 END AS PO_EXPENSE
+			,lpo.SOURCE_SYSTEM
+			,lpo.LO_PURCHASE_ORDER_ID
+			,lpo.PO_Dollar_Value
+			,t.BILL_STATUS
+			,CAST(CASE WHEN	t.BILL_STATUS IS NULL 
+					THEN SUM(CASE WHEN ll.CR_CARRIER_ID = 78 AND CEILING(TOTAL_PALLETS) > 0 AND ll.SOURCE_WHS_ID IS NULL
+									THEN CASE
+											WHEN lpo.DIS_WHS_ID = ll.DESTINATION_WHS_ID 
+												THEN CEILING(lpo.TOTAL_PALLETS) *  phr.[BACKHAUL_RATE]
+										  ELSE CEILING(lpo.TOTAL_PALLETS) * phr.CROSS_DOCK_RATE
+									END
+			  END) OVER (PARTITION BY lpo.LO_PURCHASE_ORDER_ID) 
+			  END as decimal(10,3)) AS BACKHAUL_EXPENSE_PO
+			,CASE WHEN COUNT(CASE WHEN ll.CR_CARRIER_ID = 78 AND ll.SOURCE_WHS_ID IS NULL THEN 1 END) OVER (PARTITION BY lpo.LO_PURCHASE_ORDER_ID) > 0 THEN 'YES'  ELSE 'NO' END  AS BACKHAUL_INDICATOR
+		,CEILING(lpo.TOTAL_PALLETS) AS TOTAL_PALLETS_RCV
+		,tb.NAME AS BUYER_NAME
+		,CAST(lpo.REC_DATE AS DATE) as REC_DATE
+		,CAST(NULL AS INT ) AS HAS_BEEN_IN_PEND_STATUS
+		INTO #RES
+		FROM LO_PURCHASE_ORDERS lpo 
+			INNER JOIN TMS_WHS PODEST 
+				ON lpo.DIS_WHS_ID = PODEST.TMS_WHS_ID
+			left JOIN #TOTALS t 
+				ON  t.LO_PURCHASE_ORDER_ID = lpo.LO_PURCHASE_ORDER_ID 					
+			LEFT JOIN LO_PO_LOADS lpl 
+				ON lpo.LO_PURCHASE_ORDER_ID = lpl.LO_PURCHASE_ORDER_ID
+					AND (lpl.IS_DELETED IS NULL OR lpl.IS_DELETED = 0)
+			LEFT JOIN LO_LOADS ll 
+				ON ll.LO_LOAD_NUMBER = lpl.LO_LOAD_NUMBER
+			LEFT JOIN TMS_VENDOR tv 
+				ON tv.TMS_VENDOR_ID = lpo.TMS_VENDOR_ID
+			LEFT JOIN TMS_VENDOR_FACILITY tvf 
+				ON lpo.TMS_VENDOR_FACILITY_ID = tvf.TMS_VENDOR_FACILITY_ID
+			LEFT JOIN TMS_BUYER tb 
+				ON tb.TMS_BUYER_ID = lpo.TMS_BUYER
+			LEFT JOIN tblUNFIfiscalCalendar uc
+				ON CAST(lpo.REC_DATE AS DATE) BETWEEN uc.WeekStart AND uc.WeekEnd
+			LEFT JOIN dbo.PALLET_HANDLING_RATE phr
+				ON	uc.FiscalYear = phr.[FISCAL_YEAR]
+					AND lpo.SOURCE_SYSTEM = phr.SOURCE_SYSTEM 
+		WHERE lpo.TMS_STATUS_ID = 9 
+			AND tv.REMIT_VENDOR IS NOT NULL AND tv.REMIT_VENDOR > 0
+			AND lpo.TOTAL_WEIGHT > 0
+			AND (CAST(lpo.REC_DATE AS DATE) BETWEEN @StartDate1 AND @EndDate1)
+			AND ((tv.REMIT_VENDOR = @LawsonNumber1 AND @VendorNumber1 IS NULL) OR (tv.VENDOR_NUMBER = @VendorNumber1 AND @LawsonNumber1 IS NULL))
+			AND (@UNFI_DC1 IS NULL OR PODEST.TMS_WHS_ID IN (SELECT i FROM #W))
+			--AND tv.NAME NOT LIKE '%TRANSFER%' --Leave out Transfer vendors
+			AND (tv.IS_TRANSFER_VENDOR = 0 OR tv.IS_TRANSFER_VENDOR IS NULL)
+						
+			
+			CREATE INDEX #IDX_lPO ON #RES(LO_PURCHASE_ORDER_ID)  INCLUDE (DIS_WHS_ID)
+			CREATE INDEX #IDX_po_number ON #RES(PO_NUMBER)
+			
+			SELECT p.*, app.APPOINTMENT_DATE
+			, app.DATETIMELANDED
+			,APP_APPOINTMENT_ID = app.APP_APPOINTMENT_ID
+			,APPT_DESTINATION_WHS = APPDEST.NAME
+			,NEED_BY_DATE = CAST(COALESCE(app.CALCULATED_ETA, p.EXPECT_DATE) AS DATE)
+			,LANDED = CASE 
+					WHEN DATEDIFF(DAY,CAST(p.ORIGINAL_ETA_DATE AS DATE),CAST(app.DATETIMELANDED AS DATE)) > 0
+						THEN 'LATE'
+					ELSE 'ON TIME'
+				END
+			,LANDED_VS_NEEDBY = CASE 
+					WHEN DATEDIFF(DAY, CAST(COALESCE(app.CALCULATED_ETA, p.EXPECT_DATE) AS DATE), CAST(app.DATETIMELANDED AS DATE)) > 0 
+						THEN 'LATE' 
+					ELSE 'ON TIME' 
+				END
+			INTO #POS
+			FROM #RES p
+				INNER JOIN APP_APPOINTMENT_POS apos  
+					ON p.LO_PURCHASE_ORDER_ID = apos.LO_PURCHASE_ORDER_ID 
+						AND (apos.IS_DELETED IS NULL OR apos.IS_DELETED = 0 )
+			INNER JOIN APP_APPOINTMENTS app 
+				ON app.APP_APPOINTMENT_ID = apos.APP_APPOINTMENT_ID
+					AND app.TMS_WHS_ID = p.DIS_WHS_ID
+					AND app.APPOINTMENT_STATUS NOT IN (14,15)
+			INNER JOIN TMS_WHS APPDEST 
+				ON app.TMS_WHS_ID = APPDEST.TMS_WHS_ID 
+			
+			CREATE INDEX #IDX_PO ON #POS(PO_NUMBER) INCLUDE (LO_PURCHASE_ORDER_ID)
+			CREATE INDEX #IDX_REMITVENDOR ON #POS(REMIT_VENDOR_NUMBER)
+
+			UPDATE P
+			SET HAS_BEEN_IN_PEND_STATUS = 1 
+			FROM #POS p
+				INNER JOIN LO_PO_LOG llog
+					ON p.LO_PURCHASE_ORDER_ID = llog.LO_PURCHASE_ORDER_ID
+			WHERE llog.D_RTE IN ('PEND', 'PND')
+
+			--UPDATE #POS
+			--SET TOTAL_PO_EAST = POH_R_E.POTotalAmount
+			--FROM #POS p
+			--LEFT JOIN EDM.East_Datamart.dbo.tblReceivedPOheader POH_R_E 
+			--	ON p.PO_NUMBER = POH_R_E.PONumber
+			--		AND p.SOURCE_SYSTEM = 'UBS'
+
+			UPDATE #POS
+			SET 
+				REMIT_VENDOR_NAME = v.[VENDOR_VNAME]
+			FROM 
+				#POS p
+				INNER JOIN [NDM].[Lawson_PROD].[dbo].[APVENMAST] v 
+				ON p.REMIT_VENDOR_NUMBER = v.[VENDOR]
+				
+			--UPDATE #POS
+			--SET TOTAL_PO_NATIONAL = POH_R_W.TOTAL
+			--FROM #POS p
+			--LEFT JOIN NDM.National_Datamart.dbo.tbl_MPW_POHeader POH_R_W 
+			--	ON p.PO_NUMBER = LEFT(POH_R_W.PONumber, 9)
+			--	AND POH_R_W.Form = 17
+			--	AND p.SOURCE_SYSTEM = 'WBS'
+
+			
+		SELECT DISTINCT
+			pol.PO_NUMBER
+			,pol.TOTAL_UNITS
+			,pol.TOTAL_WEIGHT
+			,RANK() OVER (PARTITION BY pol.PO_NUMBER ORDER BY pol.PurchaseOrderLogID DESC) AS RNK
+			,RANK() OVER (PARTITION BY pol.PO_NUMBER ORDER BY  pol.PurchaseOrderLogID ) AS RNK_ORIGINAL
+		INTO #LOGDATA
+		FROM #POS 
+			INNER JOIN TMS_INTEG_LOG.dbo.PurchaseOrdersLog pol 
+				ON #POS.PO_NUMBER = pol.PO_NUMBER 
+		WHERE ISDATE(REQUEST_DATE) = 1
+			AND ISDATE(pol.EXPECT_DATE) = 1
+			AND pol.TOTAL_UNITS > 0
+			AND POL.STATUS NOT IN ('RCV','DEL')
+
+		CREATE INDEX #IDX_LOGDATA ON #LOGDATA(PO_NUMBER) INCLUDE(RNK, RNK_ORIGINAL)
+		
+		--Get all the protection Level
+		SELECT  @PL_List = STUFF((SELECT DISTINCT ','+ PROTECTION_LEVEL 
+		FROM #POS 
+		for xml path('')),1,1,'')
+		
+		--Eliminate duplicates protection level	
+		SELECT  @PL =STUFF((SELECT DISTINCT ','+C
+		FROM dbo.fnParseStack(@PL_List, 'C') 
+		for xml path('')),1,1,'')
+
+		SELECT  
+			REMIT_VENDOR_NUMBER
+			,REMIT_VENDOR_NAME  
+			,VENDOR_NUMBER 
+			,VENDOR_NAME
+			,PO_DESTINATION
+			,ROUTE_CODE			
+			,PO_TYPE
+			,ORIGINAL_ETA_DATE
+			,APPOINTMENT_DATE
+			,DATETIMELANDED
+			,APP_APPOINTMENT_ID
+			,APPT_DESTINATION_WHS
+			,LANDED
+			,APPOINTMENT_STATUS
+			,#POS.PO_NUMBER
+			,ld.TOTAL_UNITS AS TOTAL_UNITS_ORDERED
+			,ld1.TOTAL_UNITS AS TOTAL_UNITS_ORIGINAL
+			,TOTAL_UNITS_RCV
+			,PROTECTION_LEVEL
+			,PICKUP_ADDRESS
+			,PICKUP_CITY
+			,PICKUP_STATE
+			,ZIP
+			,TOTAL_PO_RECEIVED_LBS
+			,PO_REVENUE
+			,PO_EXPENSE as PO_EXPENSE
+			,ISNULL(BACKHAUL_EXPENSE_PO,0) AS BACKHAUL_EXPENSE_PO
+			,CASE WHEN BILL_STATUS IS NULL THEN PO_EXPENSE + ISNULL(BACKHAUL_EXPENSE_PO,0) END AS PO_INBOUND_EXPENSE
+			,BACKHAUL_INDICATOR
+			,cast(CASE WHEN BILL_STATUS IS NULL THEN PO_REVENUE - (PO_EXPENSE+ISNULL(BACKHAUL_EXPENSE_PO,0))  ELSE 0 END as decimal(10,3)) AS MARGIN_PO
+			,cast(CASE WHEN BILL_STATUS IS NULL 			
+				THEN ISNULL((ISNULL(PO_REVENUE,0) - (PO_EXPENSE+ISNULL(BACKHAUL_EXPENSE_PO,0))) / NULLIF(PO_REVENUE,0),0) 
+			 END as decimal(10,3)) AS MARGIN_PO_PCT
+			,BILL_STATUS
+			,PO_Dollar_Value AS TOTAL_PO
+			,TOTAL_PALLETS_RCV
+			,LANDED_VS_NEEDBY
+			,NEED_BY_DATE
+			,BUYER_NAME
+			,REC_DATE
+			,HAS_BEEN_IN_PEND_STATUS
+			,@PL as ALL_PROTECTION_LEVELS
+		FROM #POS 
+			INNER JOIN #LOGDATA ld 
+			ON #POS.PO_NUMBER = ld.PO_NUMBER
+			AND ld.RNK = 1
+			INNER JOIN #LOGDATA ld1 
+			ON #POS.PO_NUMBER = ld1.PO_NUMBER
+			AND ld1.RNK_ORIGINAL = 1 	
+			AND APP_APPOINTMENT_ID IS NOT NULL
+		ORDER BY REMIT_VENDOR_NUMBER, VENDOR_NUMBER, PO_DESTINATION
+
+	DECLARE @d_sql NVARCHAR(MAX)
+    	
+	SET @d_sql = ''
+
+	SELECT @d_sql = @d_sql + 'DROP TABLE ' + QUOTENAME(name) + ';'
+    FROM tempdb..sysobjects 
+    WHERE name like '#[^#]%'
+		AND OBJECT_ID('tempdb..'+QUOTENAME(name)) IS NOT NULL
+        
+    IF @d_sql <> ''
+    BEGIN
+	    EXEC( @d_sql )
+    END	
+
+
+END
+
+GO
+
+
