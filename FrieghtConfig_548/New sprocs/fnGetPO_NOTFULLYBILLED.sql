@@ -31,11 +31,14 @@ GO
 					   CR_CARRIERS.SHUTTLE_CARRIER = 1 was limiting the
 					   recordset to only shuttle carriers not filtering
 					   them out.					   	
+  7/11/2022	  CM       added source system filter
+			   	
  =================================================================*/
 ALTER FUNCTION [dbo].[fnGetPO_NOTFULLYBILLED]
 (
 	@StartDate DATE
 ,	@EndDate DATE
+,   @SourceSystem VARCHAR(50)
 ) RETURNS TABLE
 AS
 RETURN
@@ -63,6 +66,7 @@ RETURN
 		INNER JOIN dbo.CR_CARRIERS AS CR
 		    ON LDS.CR_CARRIER_ID = CR.CR_CARRIER_ID
 	WHERE POS.TMS_STATUS_ID = 9
+	    AND POS.SOURCE_SYSTEM = @SourceSystem
 		AND VALIDBILLS.BL_BILLING_ID IS NULL
 		AND LDS.CR_CARRIER_ID NOT IN (78, 1680, 2496, 1704)
 		AND (CAST(POS.REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate)		

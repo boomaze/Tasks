@@ -12,12 +12,15 @@ GO
 -- Author:		<Johana Aleman>
 -- Create date: <04/03/2016>
 -- Description:	<Returns a table with all the PO calculation expenses between the start and end date (LO_PURCHASE_ORDERS.REC_DATE) >
+
+--  7/11/2022	CM	       added source system filter
 -- =============================================
 ALTER FUNCTION [dbo].[fnGetSuppliersPOExpenses] 
 (	
 	-- Add the parameters for the function here
 	@StarDate DATE,
-	@EndDate DATE
+	@EndDate DATE,
+	@SourceSystem VARCHAR(50)
 )
 RETURNS TABLE 
 AS
@@ -49,7 +52,7 @@ RETURN
 							AND ISNULL(bbp.IS_DELETED, 0) = 0
 			WHERE CAST(lpo.REC_DATE AS DATE) BETWEEN @StarDate AND @EndDate)
 		AND lpo.TMS_STATUS_ID != 8
-
+		AND lpo.SOURCE_SYSTEM = @SourceSystem
 )
 GO
 

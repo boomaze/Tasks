@@ -16,11 +16,14 @@ Description : Get all the POs that have RCV status(TMS_STATUS_ID = 9) between th
 
 Note: The FPA calculation will apply to only Backhaul Loads but at this point we calculated
       for all POs
+	  
+7/11/2022		CM       added source system filter
 ****************************************************************************************/
 ALTER FUNCTION [dbo].[fnGetPOSWithCalculatePalletsFPA]
 (
 	@StartDate DATE
 ,	@EndDate DATE
+,   @SourceSystem VARCHAR(50)
 )
 RETURNS TABLE 
 AS
@@ -44,6 +47,7 @@ RETURN
 				, CASE WHEN lpo.TOTAL_CUBES / NULLIF(CEILING(lpo.TOTAL_PALLETS),0) BETWEEN 25 AND 100 THEN 1 ELSE 0 END AS IS_BETWEEN_PO_CUBE_PALLET
 			FROM LO_PURCHASE_ORDERS lpo
 			WHERE lpo.TMS_STATUS_ID = 9
+				AND lpo.SOURCE_SYSTEM = @SourceSystem
 				AND CAST(REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate
 	)t
 )
