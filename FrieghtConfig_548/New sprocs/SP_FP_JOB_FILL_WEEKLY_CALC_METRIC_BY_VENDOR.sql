@@ -36,6 +36,7 @@ Log Update:
 	04252019	Johana Aleman	Round avg po wiehgt,units, pallets and cubes to return the closest integer value
 	05262020	Johana Aleman	Use the [dbo].[PALLET_HANDLING_RATE] table to get the direct PO =[BACKHAUL_RATE]
 								and Crossdock = [CROSS_DOCK_RATE]
+	07/12/2022  CM				Filter on SOURCE_SYSTEM, wrap in try/catch
  ==================================================================================================================*/
 ALTER PROCEDURE [dbo].[SP_FP_JOB_FILL_WEEKLY_CALC_METRIC_BY_VENDOR]
 AS
@@ -54,6 +55,8 @@ Example 1:
 		,   @system VARCHAR(50)
 
 	SET @Today = GETDATE()
+
+BEGIN TRY      
 	
 	----Clean up the table
 	DELETE FROM FP_WEEKLY_CALC_METRIC_BY_VENDOR
@@ -279,9 +282,13 @@ Example 1:
 	DROP TABLE #NOTFULLYBILLED
 	DROP TABLE #PO_LIST
 	DROP TABLE #PO_FREIGHT
-
 	DROP TABLE #POS
 
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH 	
 
 END
 
