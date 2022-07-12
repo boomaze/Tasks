@@ -17,10 +17,10 @@ GO
 -- =============================================
 ALTER FUNCTION [dbo].[fnGetSuppliersPOExpenses] 
 (	
-	-- Add the parameters for the function here
-	@StarDate DATE,
-	@EndDate DATE,
-	@SourceSystem VARCHAR(50)
+	@StartDate DATE
+,	@EndDate DATE
+,   @FilterBySourceSystem BIT --SET to apply filter, if false filter is ignored
+,   @SourceSystem VARCHAR(50)
 )
 RETURNS TABLE 
 AS
@@ -50,9 +50,15 @@ RETURN
 				INNER JOIN BL_BILL_POS bbp WITH(NOLOCK)
 						ON lpo.LO_PURCHASE_ORDER_ID = bbp.LO_PURCHASE_ORDER_ID
 							AND ISNULL(bbp.IS_DELETED, 0) = 0
-			WHERE CAST(lpo.REC_DATE AS DATE) BETWEEN @StarDate AND @EndDate)
-		AND lpo.TMS_STATUS_ID != 8
-		AND lpo.SOURCE_SYSTEM = @SourceSystem
+			WHERE CAST(lpo.REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate)
+			AND lpo.TMS_STATUS_ID != 8
+			AND lpo.SOURCE_SYSTEM =
+			CASE WHEN @FilterBySourceSystem = 1 
+				THEN
+				 @SourceSystem
+				ELSE
+				 lpo.SOURCE_SYSTEM
+			END
 )
 GO
 

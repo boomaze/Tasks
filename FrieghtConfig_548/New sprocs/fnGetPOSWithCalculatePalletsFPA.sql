@@ -23,6 +23,7 @@ ALTER FUNCTION [dbo].[fnGetPOSWithCalculatePalletsFPA]
 (
 	@StartDate DATE
 ,	@EndDate DATE
+,   @FilterBySourceSystem BIT --SET to apply filter, if false filter is ignored
 ,   @SourceSystem VARCHAR(50)
 )
 RETURNS TABLE 
@@ -47,8 +48,14 @@ RETURN
 				, CASE WHEN lpo.TOTAL_CUBES / NULLIF(CEILING(lpo.TOTAL_PALLETS),0) BETWEEN 25 AND 100 THEN 1 ELSE 0 END AS IS_BETWEEN_PO_CUBE_PALLET
 			FROM LO_PURCHASE_ORDERS lpo
 			WHERE lpo.TMS_STATUS_ID = 9
-				AND lpo.SOURCE_SYSTEM = @SourceSystem
-				AND CAST(REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate
+			AND lpo.SOURCE_SYSTEM =
+			CASE WHEN @FilterBySourceSystem = 1 
+				THEN
+				 @SourceSystem
+				ELSE
+				 lpo.SOURCE_SYSTEM
+			END
+			AND CAST(REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate
 	)t
 )
 GO

@@ -80,121 +80,113 @@ BEGIN TRY
 	)
 	
 	----
+	
+	-----------------------------
+	-- Go through all the records by source system, since each source system can have a different config for months back. Process them into each table,
+	-- then do the rest. If no record for the source system is found in the FP_DEFAULT_CONFIG table, 'DEFAULT' is used
+	----
 
-	DECLARE @source_system VARCHAR(50) 
+	DECLARE @source_system VARCHAR(50)  -- cursor through all source systems
 
-	DECLARE db_cursor CURSOR FOR 
+	DECLARE source_systems_cursor CURSOR FOR    
 	SELECT DISTINCT SOURCE_SYSTEM 
 	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
 
-	OPEN db_cursor  
-	FETCH NEXT FROM db_cursor INTO @source_system 
+		WHILE @@FETCH_STATUS = 0  
+		BEGIN  
+			--Get the value of the number of months that job will go back from the config default table
+			SET @SUPPLIER_SCREEN_MONTHS_BACK = COALESCE ( (SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+				
+			SET @StartDate =  DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
 
-	WHILE @@FETCH_STATUS = 0  
-	BEGIN  
+			--To get the POs that are NOT full Billed 
+			INSERT 
+			INTO #NOTFULLYBILLED 
+			SELECT *
+			FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate, 1, @system)
 
-	--Get the value of the number of months that job will go back from the config default table
-	SET @SUPPLIER_SCREEN_MONTHS_BACK = COALESCE ( (SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
-													(SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
-		
-	--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
-	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
-	SET @EndDate = '1/3/2020' --@Today
-	SET @system = @source_system
+			PRINT @source_system
+			PRINT @SUPPLIER_SCREEN_MONTHS_BACK
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
 
-	--To get the POs that are NOT full Billed 
-	INSERT 
-	INTO #NOTFULLYBILLED 
-	SELECT *
-	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate, @system)
-
-	PRINT @source_system
-	PRINT @SUPPLIER_SCREEN_MONTHS_BACK
-	FETCH NEXT FROM db_cursor INTO @source_system  
-	END 
-
-	CLOSE db_cursor  
-
-	DEALLOCATE db_cursor 
-
-	--END CURSOR
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
 	
 	CREATE CLUSTERED INDEX #NFBIDX ON #NOTFULLYBILLED (LO_PURCHASE_ORDER_ID)	
 
 
-	DECLARE db_cursor CURSOR FOR 
+	DECLARE source_systems_cursor CURSOR FOR 
 	SELECT DISTINCT SOURCE_SYSTEM 
 	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
 
-	OPEN db_cursor  
-	FETCH NEXT FROM db_cursor INTO @source_system 
+		WHILE @@FETCH_STATUS = 0  
+		BEGIN  
+			--Get the value of the number of months that job will go back from the config default table
+			SET @SUPPLIER_SCREEN_MONTHS_BACK = COALESCE ( (SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+						
+			SET @StartDate =  DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
 
-	WHILE @@FETCH_STATUS = 0  
-	BEGIN  
-
-	--Get the value of the number of months that job will go back from the config default table
-	SET @SUPPLIER_SCREEN_MONTHS_BACK = 1--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
-	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
-	SET @EndDate = '1/3/2020' --@Today
-	SET @system = @source_system
-
-
-
-
-	--Get all the RCV POs with FPA calculation even when this calculation apply only to Backhaul
-	--that are fully billed
-	INSERT
-	INTO #PO_LIST
-	SELECT * 
-	FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate, @system)
-	WHERE LO_PURCHASE_ORDER_ID NOT IN (SELECT LO_PURCHASE_ORDER_ID FROM #NOTFULLYBILLED) --Lead out POs that are not fully billed
+			--Get all the RCV POs with FPA calculation even when this calculation apply only to Backhaul
+			--that are fully billed
+			INSERT
+			INTO #PO_LIST
+			SELECT * 
+			FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate, 1, @system)
+			WHERE LO_PURCHASE_ORDER_ID NOT IN (SELECT LO_PURCHASE_ORDER_ID FROM #NOTFULLYBILLED) --Lead out POs that are not fully billed
 
 
-	PRINT @source_system
-	FETCH NEXT FROM db_cursor INTO @source_system  
-	END 
+			PRINT @source_system
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
 
-	CLOSE db_cursor  
-
-	DEALLOCATE db_cursor 
-
-	--END CURSOR
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
 
 	CREATE CLUSTERED INDEX #IDX_PO_LIST ON #PO_LIST(LO_PURCHASE_ORDER_ID)
 
 
-	DECLARE db_cursor CURSOR FOR 
+	DECLARE source_systems_cursor CURSOR FOR 
 	SELECT DISTINCT SOURCE_SYSTEM 
 	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
 
-	OPEN db_cursor  
-	FETCH NEXT FROM db_cursor INTO @source_system 
+		WHILE @@FETCH_STATUS = 0  
+			BEGIN  
 
-	WHILE @@FETCH_STATUS = 0  
-	BEGIN  
+			--Get the value of the number of months that job will go back from the config default table
+			SET @SUPPLIER_SCREEN_MONTHS_BACK = COALESCE ( (SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+															
+			SET @StartDate =  DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
+			
+			--To get the Suppliers PO expenses for all the RCV POs
+			INSERT
+			INTO #PO_FREIGHT
+			SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
+			FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate, 1, @system) 
+			WHERE LO_PURCHASE_ORDER_ID IN (SELECT LO_PURCHASE_ORDER_ID FROM #PO_LIST) 
+			GROUP BY LO_PURCHASE_ORDER_ID
 
-	--Get the value of the number of months that job will go back from the config default table
-	SET @SUPPLIER_SCREEN_MONTHS_BACK = 1--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
-	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
-	SET @EndDate = '1/3/2020' --@Today
-	SET @system = @source_system
+			PRINT @source_system
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
 
-
-	--To get the Suppliers PO expenses for all the RCV POs
-	INSERT
-	INTO #PO_FREIGHT
-	SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
-	FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate, @system) 
-	WHERE LO_PURCHASE_ORDER_ID IN (SELECT LO_PURCHASE_ORDER_ID FROM #PO_LIST) 
-	GROUP BY LO_PURCHASE_ORDER_ID
-
-	PRINT @source_system
-	FETCH NEXT FROM db_cursor INTO @source_system  
-	END 
-
-	CLOSE db_cursor  
-
-	DEALLOCATE db_cursor 
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
 
 	CREATE CLUSTERED INDEX #IDXPO_Freight ON #PO_Freight (LO_PURCHASE_ORDER_ID)
 

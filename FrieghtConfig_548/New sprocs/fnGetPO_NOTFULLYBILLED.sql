@@ -38,6 +38,7 @@ ALTER FUNCTION [dbo].[fnGetPO_NOTFULLYBILLED]
 (
 	@StartDate DATE
 ,	@EndDate DATE
+,   @FilterBySourceSystem BIT --SET to apply filter, if false filter is ignored
 ,   @SourceSystem VARCHAR(50)
 ) RETURNS TABLE
 AS
@@ -66,7 +67,13 @@ RETURN
 		INNER JOIN dbo.CR_CARRIERS AS CR
 		    ON LDS.CR_CARRIER_ID = CR.CR_CARRIER_ID
 	WHERE POS.TMS_STATUS_ID = 9
-	    AND POS.SOURCE_SYSTEM = @SourceSystem
+		AND POS.SOURCE_SYSTEM =
+		CASE WHEN @FilterBySourceSystem = 1 
+			THEN
+			 @SourceSystem
+			ELSE
+			 POS.SOURCE_SYSTEM
+		END
 		AND VALIDBILLS.BL_BILLING_ID IS NULL
 		AND LDS.CR_CARRIER_ID NOT IN (78, 1680, 2496, 1704)
 		AND (CAST(POS.REC_DATE AS DATE) BETWEEN @StartDate AND @EndDate)		
