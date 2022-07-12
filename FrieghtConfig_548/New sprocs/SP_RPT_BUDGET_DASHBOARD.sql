@@ -122,10 +122,10 @@ BEGIN TRY
 	INTO #NFB
 	FROM (SELECT gpn.LO_LOAD_NUMBER
 
-			FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate) gpn
+			FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate, 0, NULL) gpn
 			UNION ALL
 			SELECT gpn.LO_LOAD_NUMBER
-			FROM dbo.fnGetPO_NOTFULLYBILLED(@PreviousStartDate, @PreviousEndDate) gpn) D
+			FROM dbo.fnGetPO_NOTFULLYBILLED(@PreviousStartDate, @PreviousEndDate, 0, NULL) gpn) D
 
 	CREATE CLUSTERED INDEX idx_nfb_ids ON #NFB (LO_LOAD_NUMBER)
 
