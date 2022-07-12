@@ -23,6 +23,7 @@ Log Update:
     05/26/20	JAleman		Use the [dbo].[PALLET_HANDLING_RATE] table to get the direct PO =[BACKHAUL_RATE]
 							and Crossdock = [CROSS_DOCK_RATE]
 	04/08/21	JAleman		exclude Side Stream POs from this job as part of the SS freight pricing project
+	07/12/2022  CM				Filter on SOURCE_SYSTEM, wrap in try/catch
  ================================================================================================================================*/
 ALTER PROCEDURE [dbo].[SP_FP_JOB_FILL_FP_WEEKLY_SUPPLIER_WHS_MARGIN_LOSS]
 (
@@ -41,6 +42,7 @@ Example 1:
 		,	@StartDate DATE
 		,	@EndDate DATE
 		,	@Today DATE
+		,   @system VARCHAR(50)
 
 	--Set @today base on the Parameter
 	IF (@Report_Date IS NULL )
@@ -51,6 +53,25 @@ Example 1:
 	BEGIN
 		SET @Today = @Report_Date
 	END
+	
+BEGIN TRY  
+		
+	----CREATE the temp tables
+	CREATE TABLE #NOTFULLYBILLED (
+		PO_NUMBER VARCHAR(100),
+		LO_PURCHASE_ORDER_ID BIGINT,
+		LO_LOAD_NUMBER BIGINT
+	)
+
+	CREATE TABLE #PO_LIST (
+		LO_PURCHASE_ORDER_ID BIGINT,
+		MAX_26PALLETS_FINAL_CALC DECIMAL(10,3)
+	)
+
+	CREATE TABLE #PO_FREIGHT (
+		LO_PURCHASE_ORDER_ID BIGINT,
+		FREIGHT_PAID_PO DECIMAL
+	)
 
 	--if there is an entry for the same day, we delete those records and process again
 	IF EXISTS (SELECT TOP 1 1 FROM FP_WEEKLY_SUPPLIER_WHS_MARGIN_LOSS WHERE REPORT_DATE = @Today)
@@ -58,36 +79,102 @@ Example 1:
 		WHERE REPORT_DATE = @Today
 
 
-	--Get the value of the number of months that job will go back from the config default table
-	SET @MARGIN_LOSS_REPORT_MONTHS_BACK = (SELECT TOP 1 MARGIN_LOSS_REPORT_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
-	SET @StartDate = DATEADD(MONTH,-@MARGIN_LOSS_REPORT_MONTHS_BACK, @Today)
-	SET @EndDate = @Today
+	DECLARE @source_system VARCHAR(50)  -- cursor through all source systems
 
-	PRINT @StartDate
-	PRINT @EndDate
-	
-	--To get the POs that are NOT full Billed 
-	SELECT * 
-	INTO #NOTFULLYBILLED 
-	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate)
+	DECLARE source_systems_cursor CURSOR FOR    
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
+
+		WHILE @@FETCH_STATUS = 0  
+		BEGIN  
+			--Get the value of the number of months that job will go back from the config default table
+			SET @MARGIN_LOSS_REPORT_MONTHS_BACK = COALESCE ( (SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+				
+			SET @StartDate =  DATEADD(MONTH,-@MARGIN_LOSS_REPORT_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
+
+			PRINT @StartDate
+			PRINT @EndDate
+			
+			--To get the POs that are NOT full Billed 
+			INSERT 
+			INTO #NOTFULLYBILLED 
+			SELECT *
+			FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate, 1, @system)
+
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
+
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
+
 	
 	CREATE CLUSTERED INDEX #NFBIDX ON #NOTFULLYBILLED (LO_PURCHASE_ORDER_ID)	
+	
+	
+	DECLARE source_systems_cursor CURSOR FOR    
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
+		WHILE @@FETCH_STATUS = 0  
+		BEGIN  
+		
+			SET @MARGIN_LOSS_REPORT_MONTHS_BACK = COALESCE ( (SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+				
+			SET @StartDate =  DATEADD(MONTH,-@MARGIN_LOSS_REPORT_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
+			--Get all the RCV POs with FPA calculation even when this calculation apply only to Backhaul
+			--that are fully billed
+			INSERT
+			INTO #PO_LIST
+			SELECT * 
+			FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate, 1, @system)
+			WHERE LO_PURCHASE_ORDER_ID NOT IN (SELECT LO_PURCHASE_ORDER_ID FROM #NOTFULLYBILLED) --Lead out POs that are not fully billed
+	
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
 
-	--Get all the RCV POs with FPA calculation even when this calculation apply only to Backhaul
-	--that are fully billed
-	SELECT * 
-	INTO #PO_LIST
-	FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate)	
-	WHERE LO_PURCHASE_ORDER_ID NOT IN (SELECT LO_PURCHASE_ORDER_ID FROM #NOTFULLYBILLED) --Lead out POs that are not fully billed
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
 
 	CREATE CLUSTERED INDEX #IDX_PO_LIST ON #PO_LIST(LO_PURCHASE_ORDER_ID)
+	
+	
+	DECLARE source_systems_cursor CURSOR FOR    
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+	OPEN source_systems_cursor  
+	FETCH NEXT FROM source_systems_cursor INTO @source_system 
+		WHILE @@FETCH_STATUS = 0  
+		BEGIN  
+		
+			SET @MARGIN_LOSS_REPORT_MONTHS_BACK = COALESCE ( (SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+															(SELECT MARGIN_LOSS_REPORT_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+				
+			SET @StartDate =  DATEADD(MONTH,-@MARGIN_LOSS_REPORT_MONTHS_BACK, @Today) 
+			SET @EndDate = @Today
+			SET @system = @source_system
 
-	--To get the Suppliers PO expenses for all the RCV POs
-	SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
-	INTO #PO_FREIGHT
-	FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate) 
-	WHERE LO_PURCHASE_ORDER_ID IN (SELECT LO_PURCHASE_ORDER_ID FROM #PO_LIST) 
-	GROUP BY LO_PURCHASE_ORDER_ID
+			--To get the Suppliers PO expenses for all the RCV POs
+			INSERT
+			INTO #PO_FREIGHT
+			SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
+			FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate, 1, @system)
+			WHERE LO_PURCHASE_ORDER_ID IN (SELECT LO_PURCHASE_ORDER_ID FROM #PO_LIST) 
+			GROUP BY LO_PURCHASE_ORDER_ID
+			
+			FETCH NEXT FROM source_systems_cursor INTO @source_system  
+		END 
+
+	CLOSE source_systems_cursor  
+	DEALLOCATE source_systems_cursor 
 
 	CREATE CLUSTERED INDEX #IDXPO_Freight ON #PO_Freight (LO_PURCHASE_ORDER_ID)
 
@@ -173,6 +260,12 @@ Example 1:
 	DROP TABLE #PO_LIST
 	DROP TABLE #NOTFULLYBILLED
 	DROP TABLE #PO_FREIGHT
+	
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH
 
 END
 
