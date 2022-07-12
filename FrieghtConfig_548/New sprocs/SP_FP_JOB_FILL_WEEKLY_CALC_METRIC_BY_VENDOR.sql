@@ -14,21 +14,21 @@ GO
  Description:	The Freight Pricing Engine should calculate the following
 				metrics and refresh them on a weekly basis at the Supplier 
 				Warehouse level for “X” months back, “X” being configurable 
-					Average PO Units
-					Average PO Weight
-					Average PO Cube
-					Average PO Pallets
-					PO Count
-					Average Expense per pound
-					Average Revenue
+				?	Average PO Units
+				?	Average PO Weight
+				?	Average PO Cube
+				?	Average PO Pallets
+				?	PO Count
+				?	Average Expense per pound
+				?	Average Revenue
 					•	Average Freight per pound
 					•	Average Freight Allowance per pound
-					Average Margin
-					Total Expense
-					Total Revenue
+				?	Average Margin
+				?	Total Expense
+				?	Total Revenue
 					•	Total Freight
 					•	Total Freight Allowance
-					Total Margin
+				?	Total Margin
 				Get the number of months that the job is going back in the past from 
 				the Default config table
 Log Update:
@@ -51,6 +51,7 @@ Example 1:
 		,	@StartDate DATE
 		,	@EndDate DATE
 		,	@Today DATE
+		,   @system VARCHAR(50)
 
 	SET @Today = GETDATE()
 	
@@ -60,9 +61,9 @@ Example 1:
 	
 	----CREATE the temp tables
 	CREATE TABLE #NOTFULLYBILLED (
-    PO_NUMBER VARCHAR(100),
-    LO_PURCHASE_ORDER_ID BIGINT,
-    LO_LOAD_NUMBER BIGINT
+		PO_NUMBER VARCHAR(100),
+		LO_PURCHASE_ORDER_ID BIGINT,
+		LO_LOAD_NUMBER BIGINT
 	)
 
 	CREATE TABLE #PO_LIST (
@@ -71,48 +72,126 @@ Example 1:
 	)
 
 	CREATE TABLE #PO_FREIGHT (
-		FREIGHT_PAID_PO DECIMAL,
 		LO_PURCHASE_ORDER_ID BIGINT,
-		LO_LOAD_NUMBER BIGINT,
-		BL_BILLING_ID BIGINT,
-		PO_NUMBER VARCHAR(50)
+		FREIGHT_PAID_PO DECIMAL
 	)
 	
-	
-	
+	----
+
+	DECLARE @source_system VARCHAR(50) 
+
+	DECLARE db_cursor CURSOR FOR 
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+
+	OPEN db_cursor  
+	FETCH NEXT FROM db_cursor INTO @source_system 
+
+	WHILE @@FETCH_STATUS = 0  
+	BEGIN  
 
 	--Get the value of the number of months that job will go back from the config default table
-	SET @SUPPLIER_SCREEN_MONTHS_BACK = 1--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
-	SET @StartDate =  DATE('1/2/2020') -- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
-	SET @EndDate = DATE('1/3/2020') --@Today
-
-	PRINT @StartDate
-	PRINT @EndDate
-	
-
+	SET @SUPPLIER_SCREEN_MONTHS_BACK = COALESCE ( (SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = @source_system) , 
+													(SELECT SUPPLIER_SCREEN_MONTHS_BACK FROM FP_DEFAULT_CONFIG WHERE SOURCE_SYSTEM = 'DEFAULT')	)
+		
+	--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
+	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+	SET @EndDate = '1/3/2020' --@Today
+	SET @system = @source_system
 
 	--To get the POs that are NOT full Billed 
-	SELECT * 
+	INSERT 
 	INTO #NOTFULLYBILLED 
-	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate)
+	SELECT *
+	FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate, @system)
+
+	PRINT @source_system
+	PRINT @SUPPLIER_SCREEN_MONTHS_BACK
+	FETCH NEXT FROM db_cursor INTO @source_system  
+	END 
+
+	CLOSE db_cursor  
+
+	DEALLOCATE db_cursor 
+
+	--END CURSOR
 	
 	CREATE CLUSTERED INDEX #NFBIDX ON #NOTFULLYBILLED (LO_PURCHASE_ORDER_ID)	
 
+
+	DECLARE db_cursor CURSOR FOR 
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+
+	OPEN db_cursor  
+	FETCH NEXT FROM db_cursor INTO @source_system 
+
+	WHILE @@FETCH_STATUS = 0  
+	BEGIN  
+
+	--Get the value of the number of months that job will go back from the config default table
+	SET @SUPPLIER_SCREEN_MONTHS_BACK = 1--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
+	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+	SET @EndDate = '1/3/2020' --@Today
+	SET @system = @source_system
+
+
+
+
 	--Get all the RCV POs with FPA calculation even when this calculation apply only to Backhaul
 	--that are fully billed
-	SELECT * 
+	INSERT
 	INTO #PO_LIST
-	FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate)	
+	SELECT * 
+	FROM [dbo].[fnGetPOSWithCalculatePalletsFPA](@StartDate, @EndDate, @system)
 	WHERE LO_PURCHASE_ORDER_ID NOT IN (SELECT LO_PURCHASE_ORDER_ID FROM #NOTFULLYBILLED) --Lead out POs that are not fully billed
+
+
+	PRINT @source_system
+	FETCH NEXT FROM db_cursor INTO @source_system  
+	END 
+
+	CLOSE db_cursor  
+
+	DEALLOCATE db_cursor 
+
+	--END CURSOR
 
 	CREATE CLUSTERED INDEX #IDX_PO_LIST ON #PO_LIST(LO_PURCHASE_ORDER_ID)
 
+
+	DECLARE db_cursor CURSOR FOR 
+	SELECT DISTINCT SOURCE_SYSTEM 
+	FROM LO_PURCHASE_ORDERS 
+
+	OPEN db_cursor  
+	FETCH NEXT FROM db_cursor INTO @source_system 
+
+	WHILE @@FETCH_STATUS = 0  
+	BEGIN  
+
+	--Get the value of the number of months that job will go back from the config default table
+	SET @SUPPLIER_SCREEN_MONTHS_BACK = 1--(SELECT TOP 1 SUPPLIER_SCREEN_MONTHS_BACK FROM dbo.FP_DEFAULT_CONFIG)
+	SET @StartDate =  '1/2/2020'-- DATEADD(MONTH,-@SUPPLIER_SCREEN_MONTHS_BACK, @Today) 
+	SET @EndDate = '1/3/2020' --@Today
+	SET @system = @source_system
+
+
 	--To get the Suppliers PO expenses for all the RCV POs
-	SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
+	INSERT
 	INTO #PO_FREIGHT
-	FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate) 
+	SELECT LO_PURCHASE_ORDER_ID, SUM(cast(ISNULL(FREIGHT_PAID_PO,0) as decimal(10,3))) AS FREIGHT_PAID_PO
+	FROM  dbo.fnGetSuppliersPOExpenses(@StartDate, @EndDate, @system) 
 	WHERE LO_PURCHASE_ORDER_ID IN (SELECT LO_PURCHASE_ORDER_ID FROM #PO_LIST) 
 	GROUP BY LO_PURCHASE_ORDER_ID
+
+	PRINT @source_system
+	FETCH NEXT FROM db_cursor INTO @source_system  
+	END 
+
+	CLOSE db_cursor  
+
+	DEALLOCATE db_cursor 
 
 	CREATE CLUSTERED INDEX #IDXPO_Freight ON #PO_Freight (LO_PURCHASE_ORDER_ID)
 
@@ -202,9 +281,7 @@ Example 1:
 	DROP TABLE #PO_FREIGHT
 
 	DROP TABLE #POS
-	--DROP TABLE #PO_LIST
-	--DROP TABLE #NOTFULLYBILLED
-	--DROP TABLE #PO_FREIGHT
+
 
 END
 
