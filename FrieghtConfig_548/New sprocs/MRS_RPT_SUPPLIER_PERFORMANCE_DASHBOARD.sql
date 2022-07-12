@@ -58,6 +58,8 @@ Example 1
 	EXEC MRS_RPT_SUPPLIER_PERFORMANCE_DASHBOARD '2015-12-06', '2016-01-02', 11189,NULL,NULL
 **************************************************************************************************/
 
+BEGIN TRY 
+
 	DECLARE	@DIRECT DECIMAL(10,5)
 		,	@CROSSDOCK DECIMAL(10,5)
 		, @StartDate1 DATE = @StartDate
@@ -334,6 +336,11 @@ Example 1
 	    EXEC( @d_sql )
     END	
 
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH 	
 
 END
 

@@ -56,6 +56,8 @@ BEGIN
 Example 1
 	EXEC dbo.MRS_RPT_SUPPLIER_SCORECARD '2015-12-06', '2016-01-02', 11189,NULL,NULL
 **************************************************************************************************/
+
+BEGIN TRY 
 		--Returns a table with all the PO that are no fully billed. 
 		SELECT * INTO #NOTFULLYBILLED FROM dbo.fnGetPO_NOTFULLYBILLED(@StartDate, @EndDate)
 		CREATE INDEX #NFBIDX ON #NOTFULLYBILLED (PO_NUMBER)	
@@ -319,6 +321,12 @@ Example 1
     BEGIN
 	    EXEC( @d_sql )
     END	
+	
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH 	
 
 END
 

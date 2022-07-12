@@ -48,6 +48,9 @@ Example 2: 	To return the POs that are fully Billed in 'WSB' source system and i
 		,	@VendorNumber VARCHAR(MAX) = @Vendor
 		,	@LawsonNum  VARCHAR(MAX) =  @LawsonNumber
 
+BEGIN TRY      
+	
+
 	SELECT 	SALES_REGION_ID
 	INTO #SALES_REGIONS
 	FROM SALES_REGION 
@@ -241,6 +244,12 @@ Example 2: 	To return the POs that are fully Billed in 'WSB' source system and i
 	DROP TABLE IF EXISTS #NOTFULLYBILLED
 	DROP TABLE IF EXISTS #SALES_REGIONS
 	DROP TABLE IF EXISTS #SOURCE_SYSTEMS
+	
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH 	
 
 END
 

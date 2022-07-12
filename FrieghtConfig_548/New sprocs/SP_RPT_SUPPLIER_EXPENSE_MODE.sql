@@ -46,6 +46,8 @@ Examples:
 	EXEC dbo.SP_RPT_SUPPLIER_EXPENSE_MODE '2015-8-8','2015-12-8', 'all','all',null,1	
 ===========================================================================================*/
 
+BEGIN TRY 
+
 	SELECT LO_PURCHASE_ORDER_ID, PO_NUMBER, LO_LOAD_NUMBER, SUM(ISNULL(FREIGHT_PAID_PO,0)) AS FREIGHT_PAID_PO
 	INTO #TOTALS
 	FROM dbo.fnGetSuppliersPOExpenses(@StarDate, @EndDate) GROUP BY LO_PURCHASE_ORDER_ID,PO_NUMBER, LO_LOAD_NUMBER
@@ -265,6 +267,13 @@ Examples:
 	DROP TABLE #TOTALS
 	DROP TABLE #POS
 	DROP TABLE #LOADS
+	
+END TRY      
+BEGIN CATCH      
+INSERT INTO [dbo].[DB_Errors]      
+ VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+END CATCH 	
+
 END
 
 
