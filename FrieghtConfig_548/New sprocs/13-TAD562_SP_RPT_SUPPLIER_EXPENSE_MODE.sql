@@ -22,6 +22,7 @@ Modified:
 									in the [dbo].[TMS_VENDOR] table when selecting 
     052620	JAleman		Use the [dbo].[PALLET_HANDLING_RATE] table to get the direct PO =[BACKHAUL_RATE]
 						and Crossdock = [CROSS_DOCK_RATE]
+	7/11/2022	  CM       added source system filter
  ===========================================================================================*/
 ALTER PROCEDURE [dbo].[SP_RPT_SUPPLIER_EXPENSE_MODE]
 (
@@ -272,6 +273,9 @@ END TRY
 BEGIN CATCH      
 INSERT INTO [dbo].[DB_Errors]      
  VALUES (NEWID(), SUSER_SNAME(), ERROR_NUMBER(), ERROR_STATE(), ERROR_SEVERITY(), ERROR_LINE(), ERROR_PROCEDURE(), ERROR_MESSAGE(), GETDATE());      
+ 
+ THROW 
+ 
 END CATCH 	
 
 END
