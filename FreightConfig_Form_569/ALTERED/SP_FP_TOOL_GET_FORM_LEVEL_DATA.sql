@@ -1,15 +1,12 @@
 USE [TMS]
 GO
 
-/****** Object:  StoredProcedure [dbo].[SP_FP_TOOL_GET_FORM_LEVEL_DATA]    Script Date: 7/27/2022 11:35:50 PM ******/
+/****** Object:  StoredProcedure [dbo].[SP_FP_TOOL_GET_FORM_LEVEL_DATA]    Script Date: 8/12/2022 12:22:43 PM ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
-
-
-
 
 
 -- =============================================
@@ -21,7 +18,8 @@ GO
 --==============================================
 -- 07/31/2019 - TWL -	CHANGED TO PULL THE CROSSDOCK AND BACKHAUL PALLET RATE FROM THE FORM NOT THE CONFIG
 -- 08/01/2019 - KT  -   Add Implied Rate to select statement
--- 09/09/2019 - TWL - SUBMIT PARTIAL FORM CHANGE
+-- 09/09/2019 - TWL -   SUBMIT PARTIAL FORM CHANGE
+-- 07/26/2022 - CM  -   RENAMED ORIGINAL CONFIGS TO DEFAULT, ADDED UCS DEFAULT CONFIGS
 -- =============================================
 ALTER PROCEDURE [dbo].[SP_FP_TOOL_GET_FORM_LEVEL_DATA]
 	@FORM_ID BIGINT = NULL
